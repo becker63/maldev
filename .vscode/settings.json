@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "*.js": "javascriptreact",
+        "minwinbase.h": "c",
+        "iostream": "c",
+        "xstring": "cpp"
+    }
+}
