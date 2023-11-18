@@ -1,0 +1,3 @@
+[submodule "crow_maldev_repo"]
+	path = crow_maldev_repo
+	url = https://github.com/cr-0w/maldev
